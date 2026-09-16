@@ -271,8 +271,8 @@
           </div>
         </article>
 
-        <!-- Top Repositories Section -->
-        <section class="repos-section" aria-label="Top Repositories">
+        <!-- Repositories Section -->
+        <section class="repos-section" aria-label="User Repositories">
           <div class="section-header">
             <div class="section-title-group">
               <h3 class="section-title">
@@ -280,18 +280,93 @@
                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
                 </svg>
-                Top Repositories
+                Repositories
               </h3>
-              <span class="ranking-badge" title="Ranked using combined popularity formula: (Stars * 2) + Forks">
-                Ranked by Stars &amp; Forks
-              </span>
+              <div class="repo-view-tabs" role="tablist" aria-label="Repository View Mode">
+                <button type="button" id="tabTopRepos" class="repo-tab-btn active" role="tab" aria-selected="true">
+                  Top Ranked
+                </button>
+                <button type="button" id="tabAllRepos" class="repo-tab-btn" role="tab" aria-selected="false">
+                  All Repositories (<span id="allReposCount">0</span>)
+                </button>
+              </div>
             </div>
             <span id="repoCountDisplay" class="repo-count-badge">Top 4</span>
           </div>
 
-          <!-- Dynamic Grid for Top 4 Repositories -->
+          <!-- Repository Toolbar: Search, Language Filter, and Sort -->
+          <div id="repoToolbar" class="repo-toolbar">
+            <div class="repo-search-wrapper">
+              <svg class="repo-search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input 
+                type="text" 
+                id="repoSearchInput" 
+                class="repo-search-input" 
+                placeholder="Find a repository by name, description, or language..." 
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="Filter repositories"
+              >
+              <button type="button" id="clearRepoSearchBtn" class="clear-btn hidden" aria-label="Clear repository filter" title="Clear filter">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div class="repo-filters">
+              <div class="select-wrapper">
+                <select id="repoLangFilter" class="repo-select" aria-label="Filter by language">
+                  <option value="all">All Languages</option>
+                </select>
+                <svg class="select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+
+              <div class="select-wrapper">
+                <select id="repoSortSelect" class="repo-select" aria-label="Sort repositories">
+                  <option value="popular">Most Popular (Stars &amp; Forks)</option>
+                  <option value="stars">Most Stars</option>
+                  <option value="forks">Most Forks</option>
+                  <option value="updated">Recently Updated</option>
+                  <option value="name">Name (A-Z)</option>
+                </select>
+                <svg class="select-arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dynamic Grid for Repositories -->
           <div id="reposGrid" class="repos-grid">
             <!-- Rendered by JavaScript -->
+          </div>
+
+          <!-- Load More Button (shown when viewing all repositories) -->
+          <div id="loadMoreContainer" class="load-more-container hidden">
+            <button type="button" id="loadMoreBtn" class="load-more-btn">
+              <span>Show More Repositories</span>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Empty Search Filter State -->
+          <div id="noMatchingReposMessage" class="no-repos-box hidden">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              <line x1="8" y1="11" x2="14" y2="11"></line>
+            </svg>
+            <p id="noMatchingReposText">No repositories match your current search or filter.</p>
+            <button type="button" id="resetRepoFiltersBtn" class="retry-btn">Clear Filters</button>
           </div>
 
           <!-- Fallback when user has 0 public repositories -->

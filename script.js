@@ -1,5 +1,5 @@
 /**
- * DevFinder - GitHub Profile Search
+ * DevFinder - GitHub Profile Search & Repository Explorer
  * Modular, vanilla JavaScript implementation with GitHub REST API integration.
  */
 
@@ -83,9 +83,35 @@ const dom = {
   userGitHubBtn: document.getElementById('userGitHubBtn'),
 
   // Repositories Section Elements
+  tabTopRepos: document.getElementById('tabTopRepos'),
+  tabAllRepos: document.getElementById('tabAllRepos'),
+  allReposCount: document.getElementById('allReposCount'),
+  repoToolbar: document.getElementById('repoToolbar'),
+  repoSearchInput: document.getElementById('repoSearchInput'),
+  clearRepoSearchBtn: document.getElementById('clearRepoSearchBtn'),
+  repoLangFilter: document.getElementById('repoLangFilter'),
+  repoSortSelect: document.getElementById('repoSortSelect'),
   reposGrid: document.getElementById('reposGrid'),
   repoCountDisplay: document.getElementById('repoCountDisplay'),
+  loadMoreContainer: document.getElementById('loadMoreContainer'),
+  loadMoreBtn: document.getElementById('loadMoreBtn'),
+  noMatchingReposMessage: document.getElementById('noMatchingReposMessage'),
+  noMatchingReposText: document.getElementById('noMatchingReposText'),
+  resetRepoFiltersBtn: document.getElementById('resetRepoFiltersBtn'),
   noReposMessage: document.getElementById('noReposMessage')
+};
+
+// =============================================================================
+// Application State
+// =============================================================================
+const repoState = {
+  rawRepos: [],
+  totalPublicRepos: 0,
+  viewMode: 'top4', // 'top4' | 'all'
+  searchQuery: '',
+  selectedLanguage: 'all',
+  selectedSort: 'popular', // 'popular' | 'stars' | 'forks' | 'updated' | 'name'
+  displayLimit: 8
 };
 
 // =============================================================================
@@ -276,6 +302,97 @@ function rankRepositories(repos) {
 }
 
 // =============================================================================
+// Repository Search, Filter & Sort Processing
+// =============================================================================
+
+/**
+ * Populate the language filter select dropdown based on loaded repositories.
+ * @param {Array<Object>} repos
+ */
+function populateLanguageFilter(repos) {
+  const languageCounts = {};
+  
+  repos.forEach((repo) => {
+    const lang = repo.language || 'Plain Text';
+    languageCounts[lang] = (languageCounts[lang] || 0) + 1;
+  });
+
+  const sortedLanguages = Object.keys(languageCounts).sort((a, b) => a.localeCompare(b));
+
+  dom.repoLangFilter.innerHTML = '<option value="all">All Languages</option>';
+  sortedLanguages.forEach((lang) => {
+    const option = document.createElement('option');
+    option.value = lang.toLowerCase();
+    option.textContent = `${lang} (${languageCounts[lang]})`;
+    dom.repoLangFilter.appendChild(option);
+  });
+
+  dom.repoLangFilter.value = repoState.selectedLanguage;
+}
+
+/**
+ * Filter and sort repositories according to current state.
+ * @returns {Array<Object>} Filtered and sorted repositories
+ */
+function getFilteredAndSortedRepos() {
+  let list = [...repoState.rawRepos];
+
+  // 1. In-profile Search Query Filter
+  if (repoState.searchQuery) {
+    const query = repoState.searchQuery.toLowerCase();
+    list = list.filter((repo) => {
+      const nameMatch = (repo.name || '').toLowerCase().includes(query);
+      const descMatch = (repo.description || '').toLowerCase().includes(query);
+      const langMatch = (repo.language || '').toLowerCase().includes(query);
+      const topicsMatch = Array.isArray(repo.topics) && repo.topics.some(t => t.toLowerCase().includes(query));
+      return nameMatch || descMatch || langMatch || topicsMatch;
+    });
+  }
+
+  // 2. Language Filter
+  if (repoState.selectedLanguage && repoState.selectedLanguage !== 'all') {
+    list = list.filter((repo) => {
+      const lang = (repo.language || 'Plain Text').toLowerCase();
+      return lang === repoState.selectedLanguage.toLowerCase();
+    });
+  }
+
+  // 3. Sorting
+  list.sort((a, b) => {
+    const starsA = Number(a.stargazers_count) || 0;
+    const starsB = Number(b.stargazers_count) || 0;
+    const forksA = Number(a.forks_count) || 0;
+    const forksB = Number(b.forks_count) || 0;
+
+    switch (repoState.selectedSort) {
+      case 'stars':
+        return starsB !== starsA ? starsB - starsA : forksB - forksA;
+
+      case 'forks':
+        return forksB !== forksA ? forksB - forksA : starsB - starsA;
+
+      case 'updated':
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+
+      case 'name':
+        return (a.name || '').localeCompare(b.name || '');
+
+      case 'popular':
+      default: {
+        const scoreA = (starsA * 2) + forksA;
+        const scoreB = (starsB * 2) + forksB;
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        if (starsB !== starsA) return starsB - starsA;
+        if (forksB !== forksA) return forksB - forksA;
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+      }
+    }
+  });
+
+  return list;
+}
+
+// =============================================================================
 // DOM Rendering
 // =============================================================================
 
@@ -356,26 +473,87 @@ function renderProfile(user) {
 }
 
 /**
- * Render the top 4 repositories into the repository grid.
- * @param {Array<Object>} topRepos - Ranked top repositories
- * @param {number} totalRepos - Total count of public repositories
+ * Render repositories section with active search, filter, sort, and pagination.
  */
-function renderRepositories(topRepos, totalRepos) {
+function renderRepositories() {
   dom.reposGrid.innerHTML = '';
 
-  if (!topRepos || topRepos.length === 0) {
+  // Zero public repositories case
+  if (!repoState.rawRepos || repoState.rawRepos.length === 0) {
     dom.reposGrid.classList.add('hidden');
+    dom.repoToolbar.classList.add('hidden');
+    dom.loadMoreContainer.classList.add('hidden');
+    dom.noMatchingReposMessage.classList.add('hidden');
     dom.noReposMessage.classList.remove('hidden');
     dom.repoCountDisplay.textContent = '0 Repos';
+    dom.allReposCount.textContent = '0';
     return;
   }
 
-  dom.reposGrid.classList.remove('hidden');
   dom.noReposMessage.classList.add('hidden');
-  dom.repoCountDisplay.textContent = `Showing Top ${topRepos.length} of ${totalRepos}`;
+  dom.repoToolbar.classList.remove('hidden');
+  dom.allReposCount.textContent = String(repoState.rawRepos.length);
 
-  // Build repository cards using map and template literals
-  const cardsHTML = topRepos.map((repo, index) => {
+  // Update tabs active state
+  if (repoState.viewMode === 'top4' && !repoState.searchQuery && repoState.selectedLanguage === 'all') {
+    dom.tabTopRepos.classList.add('active');
+    dom.tabTopRepos.setAttribute('aria-selected', 'true');
+    dom.tabAllRepos.classList.remove('active');
+    dom.tabAllRepos.setAttribute('aria-selected', 'false');
+  } else {
+    dom.tabTopRepos.classList.remove('active');
+    dom.tabTopRepos.setAttribute('aria-selected', 'false');
+    dom.tabAllRepos.classList.add('active');
+    dom.tabAllRepos.setAttribute('aria-selected', 'true');
+  }
+
+  const filtered = getFilteredAndSortedRepos();
+
+  // No search / filter match case
+  if (filtered.length === 0) {
+    dom.reposGrid.classList.add('hidden');
+    dom.loadMoreContainer.classList.add('hidden');
+    dom.noMatchingReposMessage.classList.remove('hidden');
+    if (repoState.searchQuery) {
+      dom.noMatchingReposText.textContent = `No repositories found matching "${repoState.searchQuery}".`;
+    } else {
+      dom.noMatchingReposText.textContent = 'No repositories match the selected filters.';
+    }
+    dom.repoCountDisplay.textContent = '0 Matches';
+    return;
+  }
+
+  dom.noMatchingReposMessage.classList.add('hidden');
+  dom.reposGrid.classList.remove('hidden');
+
+  // Determine items to display
+  let displayedRepos = [];
+  const isTop4Mode = repoState.viewMode === 'top4' && !repoState.searchQuery && repoState.selectedLanguage === 'all';
+
+  if (isTop4Mode) {
+    displayedRepos = filtered.slice(0, 4);
+    dom.loadMoreContainer.classList.add('hidden');
+    dom.repoCountDisplay.textContent = `Top ${displayedRepos.length} of ${repoState.totalPublicRepos}`;
+  } else {
+    displayedRepos = filtered.slice(0, repoState.displayLimit);
+    
+    // Manage Load More button
+    if (filtered.length > repoState.displayLimit) {
+      dom.loadMoreContainer.classList.remove('hidden');
+      dom.loadMoreBtn.querySelector('span').textContent = `Show More (${filtered.length - displayedRepos.length} remaining)`;
+    } else {
+      dom.loadMoreContainer.classList.add('hidden');
+    }
+
+    if (repoState.searchQuery || repoState.selectedLanguage !== 'all') {
+      dom.repoCountDisplay.textContent = `Showing ${displayedRepos.length} of ${filtered.length} matches`;
+    } else {
+      dom.repoCountDisplay.textContent = `Showing ${displayedRepos.length} of ${filtered.length} Repos`;
+    }
+  }
+
+  // Build repository cards
+  const cardsHTML = displayedRepos.map((repo, index) => {
     const lang = repo.language || 'Plain Text';
     const langColor = LANGUAGE_COLORS[repo.language] || LANGUAGE_COLORS.Default;
     const description = repo.description 
@@ -385,6 +563,7 @@ function renderRepositories(topRepos, totalRepos) {
     const repoUrl = repo.html_url;
     const stars = formatNumber(repo.stargazers_count || 0);
     const forks = formatNumber(repo.forks_count || 0);
+    const rankPill = isTop4Mode ? `<span class="repo-rank-pill">#${index + 1}</span>` : '';
 
     return `
       <article class="repo-card" data-rank="${index + 1}">
@@ -398,7 +577,7 @@ function renderRepositories(topRepos, totalRepos) {
               ${name}
             </a>
           </div>
-          <span class="repo-rank-pill">#${index + 1}</span>
+          ${rankPill}
         </div>
 
         <p class="repo-description">${description}</p>
@@ -456,6 +635,16 @@ async function searchGitHubUser(rawUsername) {
     return;
   }
 
+  // Reset internal repository exploration state
+  repoState.searchQuery = '';
+  repoState.selectedLanguage = 'all';
+  repoState.selectedSort = 'popular';
+  repoState.viewMode = 'top4';
+  repoState.displayLimit = 8;
+  dom.repoSearchInput.value = '';
+  dom.clearRepoSearchBtn.classList.add('hidden');
+  dom.repoSortSelect.value = 'popular';
+
   // Set loading state
   setActiveState('loading');
 
@@ -489,7 +678,7 @@ async function searchGitHubUser(rawUsername) {
 
     const userData = await userResponse.json();
 
-    // 2. Fetch User Repositories (Fetch up to 100 repositories to accurately evaluate popularity)
+    // 2. Fetch User Repositories (Fetch up to 100 repositories)
     let reposData = [];
     if (userData.public_repos > 0) {
       try {
@@ -505,12 +694,15 @@ async function searchGitHubUser(rawUsername) {
       }
     }
 
-    // 3. Process and Rank Repositories
-    const top4Repos = rankRepositories(reposData);
+    // 3. Save state & populate controls
+    repoState.rawRepos = reposData;
+    repoState.totalPublicRepos = userData.public_repos;
+
+    populateLanguageFilter(reposData);
 
     // 4. Render Profile and Repositories
     renderProfile(userData);
-    renderRepositories(top4Repos, userData.public_repos);
+    renderRepositories();
 
     // Show result view
     setActiveState('result');
@@ -532,7 +724,7 @@ function setupEventListeners() {
   // Theme Toggle Button
   dom.themeToggleBtn.addEventListener('click', toggleTheme);
 
-  // Search Form Submit
+  // Main Profile Search Form Submit
   dom.searchForm.addEventListener('submit', (e) => {
     e.preventDefault();
     searchGitHubUser(dom.usernameInput.value);
@@ -547,7 +739,7 @@ function setupEventListeners() {
     }
   });
 
-  // Clear Input Button
+  // Clear Main Search Input Button
   dom.clearInputBtn.addEventListener('click', () => {
     dom.usernameInput.value = '';
     dom.clearInputBtn.classList.add('hidden');
@@ -572,6 +764,83 @@ function setupEventListeners() {
         searchGitHubUser(username);
       }
     });
+  });
+
+  // Repository View Tabs
+  dom.tabTopRepos.addEventListener('click', () => {
+    repoState.viewMode = 'top4';
+    repoState.searchQuery = '';
+    repoState.selectedLanguage = 'all';
+    dom.repoSearchInput.value = '';
+    dom.clearRepoSearchBtn.classList.add('hidden');
+    dom.repoLangFilter.value = 'all';
+    renderRepositories();
+  });
+
+  dom.tabAllRepos.addEventListener('click', () => {
+    repoState.viewMode = 'all';
+    repoState.displayLimit = 8;
+    renderRepositories();
+  });
+
+  // In-Profile Repository Search Input
+  dom.repoSearchInput.addEventListener('input', () => {
+    const val = dom.repoSearchInput.value.trim();
+    repoState.searchQuery = val;
+    repoState.displayLimit = 8;
+    if (val.length > 0) {
+      dom.clearRepoSearchBtn.classList.remove('hidden');
+      repoState.viewMode = 'all';
+    } else {
+      dom.clearRepoSearchBtn.classList.add('hidden');
+    }
+    renderRepositories();
+  });
+
+  // Clear Repository Search Input Button
+  dom.clearRepoSearchBtn.addEventListener('click', () => {
+    dom.repoSearchInput.value = '';
+    repoState.searchQuery = '';
+    repoState.displayLimit = 8;
+    dom.clearRepoSearchBtn.classList.add('hidden');
+    dom.repoSearchInput.focus();
+    renderRepositories();
+  });
+
+  // Language Filter Dropdown
+  dom.repoLangFilter.addEventListener('change', (e) => {
+    repoState.selectedLanguage = e.target.value;
+    repoState.displayLimit = 8;
+    if (e.target.value !== 'all') {
+      repoState.viewMode = 'all';
+    }
+    renderRepositories();
+  });
+
+  // Sort Dropdown
+  dom.repoSortSelect.addEventListener('change', (e) => {
+    repoState.selectedSort = e.target.value;
+    renderRepositories();
+  });
+
+  // Reset Repository Filters Button
+  dom.resetRepoFiltersBtn.addEventListener('click', () => {
+    repoState.searchQuery = '';
+    repoState.selectedLanguage = 'all';
+    repoState.selectedSort = 'popular';
+    repoState.viewMode = 'all';
+    repoState.displayLimit = 8;
+    dom.repoSearchInput.value = '';
+    dom.clearRepoSearchBtn.classList.add('hidden');
+    dom.repoLangFilter.value = 'all';
+    dom.repoSortSelect.value = 'popular';
+    renderRepositories();
+  });
+
+  // Load More Repositories Button
+  dom.loadMoreBtn.addEventListener('click', () => {
+    repoState.displayLimit += 8;
+    renderRepositories();
   });
 }
 
